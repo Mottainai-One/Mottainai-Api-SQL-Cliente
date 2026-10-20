@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checklist:
+    name: ${{ matrix.criterion }}
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        criterion:
+          - O projeto compila sem erros.
+          - Os testes automatizados passam.
+          - A aplicação inicia sem erros.
+          - O arquivo .env e outras informações sensíveis não foram enviados ao repositório.
+          - As dependências necessárias estão configuradas e podem ser instaladas.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validar declaração no checklist da PR
+        env:
+          CRITERION: ${{ matrix.criterion }}
+        run: python3 scripts/ci/check_pr.py
+
+  secrets:
+    name: Varredura de credenciais (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verificar histórico sem imprimir segredos
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro"
+          zricethezav/gitleaks:v8.24.2@sha256:b5918eb91b8d2473cec722f066abb4352e4ffdc4ec9f4283ec143aba9ec9ebc4
+          git /repo --redact --no-banner --verbose
+
+  python:
+    name: Testes da infraestrutura do CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.13'
+      - name: Testar validadores do CI
+        run: python -m unittest discover -s tests/ci -v
+      - name: Informar escopo da validação
+        run: echo "Este job testa apenas a infraestrutura do CI. Compilação, testes e inicialização da aplicação ainda dependem da inclusão do código e da definição da stack." >> "$GITHUB_STEP_SUMMARY"
+
+  environment-files:
+    name: Arquivos .env fora do repositório
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Rejeitar arquivos de ambiente versionados
+        run: python3 scripts/ci/check_env.py

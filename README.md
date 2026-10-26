@@ -34,7 +34,7 @@ In PowerShell, from the project root, run:
 .\scripts\run-swagger.ps1
 ```
 
-This launcher always points PostgreSQL to the closed local port `127.0.0.1:1` and disables SMTP, so opening Swagger cannot access a configured database or send recovery email. It supplies local-only placeholder values and process-local cryptographic keys; none are saved. Use this launcher to view the API documentation and inspect schemas. Business requests require starting the API manually with a verified disposable PostgreSQL database, the reviewed local database proposal, local mail settings, and a real Firebase project.
+This launcher always points PostgreSQL to the closed local port `127.0.0.1:1` and disables SMTP, so opening Swagger cannot access a configured database or send recovery email. It supplies local-only placeholder values and process-local cryptographic keys; none are saved. Use this launcher to view the API documentation and inspect schemas. Business requests require starting the API manually with a database installed from the reviewed combined SQL script, local mail settings, and a real Firebase project.
 
 Open:
 
@@ -55,6 +55,6 @@ The automated tests verify controller route mappings and configured bearer schem
 
 ## Database setup
 
-`local-only-db/client-api-access-proposal.sql` is a local review artifact and is ignored by Git. It has not been executed. Before business-route testing, prepare a disposable PostgreSQL copy, verify its identity and version, review the proposal with the database owner, and apply it only to that isolated copy. Never apply the proposal to a production or shared database from this project.
+`local-only-db/mottainai_shared_apis_fresh_install.sql` is the single local installer for a new empty database. It combines the operational schema source with the additive client API roles, views, functions, and access rules in one transaction. It is ignored by Git and has not been executed. It has preflight checks and refuses a database that already contains the Mottainai schema or user relations. Create a disposable empty database, verify its identity and PostgreSQL version, and review the script with the DBA before applying it. Never run it against production or an existing/shared database.
 
-The proposal assumes `pgcrypto` is available as `public.crypt`, supports `GRANT SET ON PARAMETER`, and requires the deployer to transfer function and view ownership to the dedicated non-login roles. Database TLS and parameter-log redaction must also be configured before sending login or password-reset values to SQL functions.
+The installer requires PostgreSQL 15 or newer, `pgcrypto` as `public.crypt`, and permission to transfer function and view ownership to the dedicated non-login roles. Database TLS and parameter-log redaction must also be configured before sending login or password-reset values to SQL functions. After installation, the operational and client APIs use distinct database login principals and roles against the same database.

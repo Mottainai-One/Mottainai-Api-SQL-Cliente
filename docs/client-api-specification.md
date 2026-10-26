@@ -6,7 +6,7 @@ Approved scope based on the user decisions in this task. This API is a separate 
 
 ## Integration architecture
 
-The client API is a separate service that connects directly to PostgreSQL through a dedicated least-privilege database role. It does not call the operational API at runtime. Its JDBC adapter uses the additive functions and filtered views proposed in `local-only-db/client-api-access-proposal.sql`. This SQL is ignored by Git and has not been applied or executed. DBA review and deployment into an isolated database are required before business routes can use it.
+The client API is a separate service that connects directly to the same PostgreSQL database through a dedicated least-privilege role; it does not call the operational API at runtime. The local `local-only-db/mottainai_shared_apis_fresh_install.sql` combines the operational schema baseline and client API database objects for a new empty database. It includes preflight checks, runs in one transaction, is ignored by Git, and has not been applied or executed. DBA review and deployment into an isolated empty database are required before business routes can use it. Do not use this fresh-install script against an existing database.
 
 ## Approved routes
 
@@ -91,5 +91,5 @@ The operational API documentation `docs/CUSTOMER_MOBILE_API.md` supplies the mob
 - Do not return protected database tokens, password hashes, recovery-token hashes, Firebase identity tokens, encrypted payloads, or decryption keys.
 - Customer private data is encrypted using the operational AES-GCM envelope. Keys must come from external configuration; no key or environment file is committed.
 - The SQL role `mottainai_customer_api` is `NOLOGIN`, `NOINHERIT`, and does not bypass RLS (SQL 4834–4849). Its grants omit catalog tables (4968–4977), customer INSERT (4912–4925), and pre-authentication customer lookup; `fn_bootstrap_customer_context` only resolves an already-existing protected Firebase identity (4879–4910). A dedicated API role and narrow database operations must be approved by the DBA; no broad operational database role may be used.
-- The local proposal adds `promotion_item.deleted_at` because the operational promotion-item repository filters on that field while the supplied consolidated schema omits it. This is a proposed additive schema change and must be reviewed before applying it to an isolated database. No database was contacted and no SQL was executed.
-- Before deployment, verify PostgreSQL support for `GRANT SET ON PARAMETER`, the installed schema for `pgcrypto`, ownership/membership privileges, TLS, and SQL parameter-log redaction. Validate the proposal against a disposable database copy before connecting the API.
+- The combined fresh-install script adds `promotion_item.deleted_at` because the operational promotion-item repository filters on that field while the supplied consolidated schema omits it. This is an additive compatibility column and must be reviewed before applying the installer to an isolated empty database. No database was contacted and no SQL was executed.
+- Before deployment, verify PostgreSQL support for `GRANT SET ON PARAMETER`, `pgcrypto` placement as `public.crypt`, ownership/membership privileges, TLS, and SQL parameter-log redaction. Validate the combined installer against a disposable empty database before connecting either API.

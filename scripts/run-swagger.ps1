@@ -5,7 +5,8 @@ if (-not $java) {
     throw 'Java 21 is required. Install a JDK and add java to PATH.'
 }
 
-$javaVersion = (& java -version 2>&1 | Select-Object -First 1)
+$javaVersionOutput = & cmd.exe /d /c "java -version 2>&1"
+$javaVersion = $javaVersionOutput | Select-Object -First 1
 if ($javaVersion -notmatch '21\.') {
     throw "Java 21 is required. Detected: $javaVersion"
 }

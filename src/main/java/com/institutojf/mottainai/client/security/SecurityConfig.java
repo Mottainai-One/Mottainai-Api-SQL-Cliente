@@ -3,6 +3,7 @@ package com.institutojf.mottainai.client.security;
 import java.util.Base64;
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -69,11 +70,13 @@ public class SecurityConfig {
     @Bean
     @Order(1)
     SecurityFilterChain firebaseClientFilterChain(HttpSecurity http) throws Exception {
-        http.securityMatcher("/api/v1/client/**", "/api/v1/customer-catalog/**")
+        http.securityMatcher("/api/v1/client/**", "/api/v1/customer-catalog/**",
+                        "/api/v1/customers/*/geofences/**")
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/customer-catalog/**").authenticated()
                         .requestMatchers("/api/v1/customer-catalog/**").denyAll()
                         .anyRequest().authenticated())
@@ -89,6 +92,7 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
@@ -101,7 +105,6 @@ public class SecurityConfig {
                                 "/api/v1/customers/auth/password-reset/validate",
                                 "/api/v1/customers/auth/password-reset").permitAll()
                         .requestMatchers("/api/v1/customers/auth/profile").hasRole("CUSTOMER")
-                        .requestMatchers("/api/v1/customers/*/geofences/**").hasRole("CUSTOMER")
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt
                         .decoder(legacyJwtDecoder())

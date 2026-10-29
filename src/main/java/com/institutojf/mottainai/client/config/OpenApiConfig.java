@@ -31,7 +31,7 @@ public class OpenApiConfig {
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")
                                 .bearerFormat("JWT")
-                                .description("Firebase ID token for Firebase-protected client and catalog endpoints."))
+                                .description("Firebase ID token for client profile, loyalty, geofence, and catalog endpoints."))
                         .addSecuritySchemes("LegacyCustomerBearer", new SecurityScheme()
                                 .type(SecurityScheme.Type.HTTP)
                                 .scheme("bearer")

@@ -21,6 +21,7 @@ import com.institutojf.mottainai.client.dto.response.CustomerGeofenceResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerTokenResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyAccountResponse;
+import com.institutojf.mottainai.client.dto.response.LoyaltyTransactionResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
 import com.institutojf.mottainai.client.dto.response.TokenValidationResponse;
 import com.institutojf.mottainai.client.security.CustomerDataCryptography;
@@ -158,14 +159,16 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
             ObjectNode updated = prior != null && prior.isObject()
                     ? ((ObjectNode) prior).deepCopy() : objectMapper.createObjectNode();
             updated.put("fullName", request.fullName());
-            if (request.phone() == null) updated.putNull("phone"); else updated.put("phone", request.phone());
+            String phone = request.phone();
+            if (phone != null && !phone.isBlank()) updated.put("phone", phone);
+            String preservedPhone = updated.path("phone").isTextual() ? updated.path("phone").asText() : null;
             String serialized = writeJson(updated);
             CustomerDataCryptography.Envelope envelope = cryptography.encrypt(id, serialized);
             ProfileResult result = jdbc.queryForObject(
                     "SELECT * FROM mottainai.fn_api_update_firebase_customer_profile(?,?,?,?,?,?,?,?)",
                     (rs, row) -> new ProfileResult(rs.getString("result_code"), customer(rs)),
                     ProtectedDataToken.externalAuthUid(firebaseUid), ProtectedDataToken.customerName(request.fullName()),
-                    ProtectedDataToken.phone(request.phone()), request.marketingConsent(), envelope.ciphertext(),
+                    ProtectedDataToken.phone(preservedPhone), request.marketingConsent(), envelope.ciphertext(),
                     envelope.nonce(), envelope.keyVersion(), Timestamp.valueOf(LocalDateTime.now()));
             if (result == null) throw new IllegalStateException("The database did not return a profile update result");
             return profileResult(result, "UPDATED");
@@ -213,21 +216,60 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
         StringBuilder predicate = new StringBuilder(" WHERE TRUE");
         List<Object> args = new ArrayList<>();
         if (query.storeId() != null) {
-            predicate.append(" AND store_id = ?");
+            predicate.append(" AND p.store_id = ?");
             args.add(query.storeId());
         }
         if (text != null) {
-            predicate.append(" AND lower(name) LIKE lower(?)");
+            predicate.append(" AND lower(p.name) LIKE lower(?)");
             args.add("%" + text + "%");
         }
-        long total = count("SELECT count(*) FROM mottainai.api_client_catalog_promotions" + predicate,
+        String distanceExpression = "(6371.0088 * acos(least(1.0, greatest(-1.0, "
+                + "sin(radians(CAST(? AS double precision))) * sin(radians(p.latitude)) + "
+                + "cos(radians(CAST(? AS double precision))) * cos(radians(p.latitude)) * "
+                + "cos(radians(p.longitude) - radians(CAST(? AS double precision)))))))";
+        boolean geographicSearch = query.latitude() != null;
+        if (geographicSearch) {
+            predicate.append(" AND ").append(distanceExpression).append(" <= ?");
+            args.add(query.latitude());
+            args.add(query.latitude());
+            args.add(query.longitude());
+            args.add(query.radiusKm());
+        }
+        long total = count("SELECT count(*) FROM mottainai.api_client_catalog_promotions p" + predicate,
                 args);
-        args.add(size);
-        args.add((long) page * size);
-        List<Integer> ids = jdbc.query("SELECT id FROM mottainai.api_client_catalog_promotions" + predicate
-                        + " ORDER BY starts_at DESC, id DESC LIMIT ? OFFSET ?",
-                (rs, row) -> rs.getInt(1), args.toArray());
-        List<CustomerCatalogPromotionResponse> content = ids.stream().map(this::getPromotion).toList();
+        String selectedDistance = geographicSearch ? distanceExpression : "NULL::double precision";
+        List<Object> contentArgs = new ArrayList<>();
+        if (geographicSearch) {
+            contentArgs.add(query.latitude());
+            contentArgs.add(query.latitude());
+            contentArgs.add(query.longitude());
+        }
+        contentArgs.addAll(args);
+        contentArgs.add(size);
+        contentArgs.add((long) page * size);
+        List<PromotionSummary> summaries = jdbc.query(
+                "SELECT p.id, " + selectedDistance + " AS distance_km, "
+                        + "COALESCE(discount.discount_percentage, 0) AS discount_percentage "
+                        + "FROM mottainai.api_client_catalog_promotions p "
+                        + "LEFT JOIN (SELECT promotion_id, MAX(CASE WHEN original_price > 0 "
+                        + "THEN ROUND((original_price - promotional_price) * 100.0 / original_price, 2) "
+                        + "ELSE 0 END) AS discount_percentage "
+                        + "FROM mottainai.api_client_catalog_promotion_items GROUP BY promotion_id) discount "
+                        + "ON discount.promotion_id = p.id" + predicate
+                        + " ORDER BY distance_km ASC NULLS LAST, discount_percentage DESC, "
+                        + "p.starts_at DESC, p.id DESC LIMIT ? OFFSET ?",
+                (rs, row) -> {
+                    Double distance = (Double) rs.getObject("distance_km");
+                    return new PromotionSummary(rs.getInt("id"),
+                            distance == null ? null : BigDecimal.valueOf(distance).setScale(3, java.math.RoundingMode.HALF_UP),
+                            rs.getBigDecimal("discount_percentage"));
+                }, contentArgs.toArray());
+        List<CustomerCatalogPromotionResponse> content = summaries.stream().map(summary -> {
+            CustomerCatalogPromotionResponse promotion = getPromotion(summary.id());
+            return new CustomerCatalogPromotionResponse(promotion.id(), promotion.name(), promotion.description(),
+                    promotion.promotionType(), promotion.startsAt(), promotion.endsAt(), promotion.store(),
+                    summary.distanceKm(), summary.discountPercentage(), promotion.items());
+        }).toList();
         return page(content, page, size, total);
     }
 
@@ -244,8 +286,16 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
                 (rs, row) -> new CustomerCatalogPromotionResponse.Item(rs.getInt("id"), rs.getInt("product_id"),
                         rs.getString("name"), rs.getBigDecimal("original_price"),
                         rs.getBigDecimal("promotional_price"), rs.getBigDecimal("quantity_available")), promotionId);
+        BigDecimal discountPercentage = items.stream()
+                .filter(item -> item.originalPrice() != null && item.originalPrice().signum() > 0
+                        && item.promotionalPrice() != null)
+                .map(item -> item.originalPrice().subtract(item.promotionalPrice())
+                        .multiply(BigDecimal.valueOf(100))
+                        .divide(item.originalPrice(), 2, java.math.RoundingMode.HALF_UP))
+                .max(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO.setScale(2));
         return new CustomerCatalogPromotionResponse(base.id, base.name, base.description, base.type,
-                base.startsAt, base.endsAt, base.store, items);
+                base.startsAt, base.endsAt, base.store, null, discountPercentage, items);
     }
 
     @Override
@@ -261,6 +311,35 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Loyalty account was not found");
             }
             return new LoyaltyAccountResponse(points);
+        });
+    }
+
+    @Override
+    public PageResponse<LoyaltyTransactionResponse> getLoyaltyTransactions(
+            String firebaseUid, int page, int size) {
+        return transactions.execute(status -> {
+            Integer customerId = bootstrapFirebase(firebaseUid);
+            Integer loyaltyAccountId;
+            try {
+                loyaltyAccountId = jdbc.queryForObject(
+                        "SELECT loyalty_account_id FROM mottainai.loyalty_account "
+                                + "WHERE customer_id = ? AND active IS TRUE",
+                        Integer.class, customerId);
+            } catch (EmptyResultDataAccessException exception) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Loyalty account was not found");
+            }
+            long total = count("SELECT count(loyalty_transaction_id) FROM mottainai.loyalty_transaction "
+                    + "WHERE loyalty_account_id = ?", List.of(loyaltyAccountId));
+            List<LoyaltyTransactionResponse> content = jdbc.query(
+                    "SELECT loyalty_transaction_id, sale_id, sale_date, transaction_type, points, description, created_at "
+                            + "FROM mottainai.loyalty_transaction WHERE loyalty_account_id = ? "
+                            + "ORDER BY created_at DESC, loyalty_transaction_id DESC LIMIT ? OFFSET ?",
+                    (rs, row) -> new LoyaltyTransactionResponse(rs.getInt("loyalty_transaction_id"),
+                            (Integer) rs.getObject("sale_id"), localDateTime(rs, "sale_date"),
+                            rs.getString("transaction_type"), rs.getInt("points"), rs.getString("description"),
+                            localDateTime(rs, "created_at")),
+                    loyaltyAccountId, size, (long) page * size);
+            return page(content, page, size, total);
         });
     }
 
@@ -333,9 +412,9 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     }
 
     @Override
-    public List<CustomerGeofenceResponse> listGeofences(Integer customerId, String protectedLoginEmail) {
+    public List<CustomerGeofenceResponse> listGeofences(Integer customerId, String firebaseUid) {
         return transactions.execute(status -> {
-            requireLegacyOwner(customerId, protectedLoginEmail);
+            requireFirebaseOwner(customerId, firebaseUid);
             return jdbc.query("SELECT g.geofence_id, g.customer_id, g.store_id, s.name AS store_name, "
                             + "g.radius_meters, g.active, g.created_at FROM mottainai.customer_geofence g "
                             + "JOIN mottainai.api_client_catalog_stores s ON s.id = g.store_id "
@@ -346,9 +425,9 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
 
     @Override
     public CustomerGeofenceResponse addGeofence(
-            Integer customerId, CreateCustomerGeofenceRequest request, String protectedLoginEmail) {
+            Integer customerId, CreateCustomerGeofenceRequest request, String firebaseUid) {
         return transactions.execute(status -> {
-            requireLegacyOwner(customerId, protectedLoginEmail);
+            requireFirebaseOwner(customerId, firebaseUid);
             CustomerCatalogStoreResponse store = getStore(request.storeId());
             return jdbc.queryForObject("INSERT INTO mottainai.customer_geofence "
                             + "(customer_id, store_id, radius_meters, active, created_at, updated_at) "
@@ -361,9 +440,9 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     }
 
     @Override
-    public void removeGeofence(Integer customerId, Integer geofenceId, String protectedLoginEmail) {
+    public void removeGeofence(Integer customerId, Integer geofenceId, String firebaseUid) {
         transactions.executeWithoutResult(status -> {
-            requireLegacyOwner(customerId, protectedLoginEmail);
+            requireFirebaseOwner(customerId, firebaseUid);
             int changed = jdbc.update("UPDATE mottainai.customer_geofence SET active = FALSE, "
                             + "updated_at = CURRENT_TIMESTAMP WHERE customer_id = ? AND geofence_id = ? AND active IS TRUE",
                     customerId, geofenceId);
@@ -387,6 +466,13 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
 
     private void requireLegacyOwner(Integer customerId, String protectedEmail) {
         Integer actual = bootstrapLegacy(protectedEmail);
+        if (!actual.equals(customerId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Customer profile was not found");
+        }
+    }
+
+    private void requireFirebaseOwner(Integer customerId, String firebaseUid) {
+        Integer actual = bootstrapFirebase(firebaseUid);
         if (!actual.equals(customerId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Customer profile was not found");
         }
@@ -493,7 +579,9 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     }
 
     private static CustomerResponse customer(ResultSet rs) throws SQLException {
-        return new CustomerResponse(rs.getInt("customer_id"), (Short) rs.getObject("birth_year"),
+        Object birthYearValue = rs.getObject("birth_year");
+        Short birthYear = birthYearValue == null ? null : ((Number) birthYearValue).shortValue();
+        return new CustomerResponse(rs.getInt("customer_id"), birthYear,
                 (Boolean) rs.getObject("active"), (Boolean) rs.getObject("marketing_consent"),
                 localDateTime(rs, "created_at"), localDateTime(rs, "updated_at"));
     }
@@ -524,4 +612,5 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     private record RecoveryToken(Integer customerAuthId, String secret) { }
     private record PromotionBase(Integer id, String name, String description, String type,
             LocalDateTime startsAt, LocalDateTime endsAt, CustomerCatalogStoreResponse store) { }
+    private record PromotionSummary(Integer id, BigDecimal distanceKm, BigDecimal discountPercentage) { }
 }

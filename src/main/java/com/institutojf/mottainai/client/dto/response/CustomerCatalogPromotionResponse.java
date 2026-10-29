@@ -12,6 +12,8 @@ public record CustomerCatalogPromotionResponse(
         LocalDateTime startsAt,
         LocalDateTime endsAt,
         CustomerCatalogStoreResponse store,
+        BigDecimal distanceKm,
+        BigDecimal discountPercentage,
         List<Item> items
 ) {
     public record Item(

@@ -1,4 +1,8 @@
 target/
+/.verification-target/
+/.verification-final/
+/local-only-db/
+.tools/
 .mvn/wrapper/maven-wrapper.jar
 .classpath
 .project

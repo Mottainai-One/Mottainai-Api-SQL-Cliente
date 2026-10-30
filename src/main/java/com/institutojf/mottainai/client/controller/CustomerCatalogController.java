@@ -7,6 +7,8 @@ import com.institutojf.mottainai.client.dto.response.CustomerCatalogPromotionRes
 import com.institutojf.mottainai.client.dto.response.CustomerCatalogStoreResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
 import com.institutojf.mottainai.client.service.ClientApiOperations;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/customer-catalog")
 @SecurityRequirement(name = "FirebaseBearer")
+@Tag(name = "Catálogo do cliente")
 public class CustomerCatalogController {
 
     private final ClientApiOperations operations;
@@ -38,6 +41,10 @@ public class CustomerCatalogController {
     }
 
     @GetMapping("/promotions")
+    @Operation(summary = "Listar promoções disponíveis",
+            description = "latitude, longitude e radiusKm são opcionais, mas devem ser enviados juntos. "
+                    + "A busca geográfica aceita raios de até 20 km e ordena por distância crescente, "
+                    + "depois pelo maior desconto percentual da promoção.")
     public PageResponse<CustomerCatalogPromotionResponse> promotions(
             @Valid @ModelAttribute CustomerPromotionCatalogQuery query) {
         return operations.listPromotions(query);

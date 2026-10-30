@@ -6,6 +6,8 @@ import java.util.List;
 import com.institutojf.mottainai.client.dto.request.CreateCustomerGeofenceRequest;
 import com.institutojf.mottainai.client.dto.response.CustomerGeofenceResponse;
 import com.institutojf.mottainai.client.service.ClientApiOperations;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,7 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/customers/{customerId}/geofences")
-@SecurityRequirement(name = "LegacyCustomerBearer")
+@SecurityRequirement(name = "FirebaseBearer")
+@Tag(name = "Geocercas do cliente (Firebase)")
 public class CustomerGeofenceController {
 
     private final ClientApiOperations operations;
@@ -30,6 +33,8 @@ public class CustomerGeofenceController {
     }
 
     @GetMapping
+    @Operation(summary = "Listar geocercas do cliente autenticado",
+            description = "Usa o Firebase ID token. O customerId da URL deve pertencer ao usuário autenticado.")
     public ResponseEntity<List<CustomerGeofenceResponse>> list(
             @PathVariable Integer customerId,
             @AuthenticationPrincipal Jwt jwt) {
@@ -37,6 +42,8 @@ public class CustomerGeofenceController {
     }
 
     @PostMapping
+    @Operation(summary = "Criar ou atualizar uma geocerca",
+            description = "Usa Firebase ID token. O banco atual permite raios entre 50 e 10.000 metros.")
     public ResponseEntity<CustomerGeofenceResponse> add(
             @PathVariable Integer customerId,
             @Valid @RequestBody CreateCustomerGeofenceRequest request,
@@ -46,6 +53,7 @@ public class CustomerGeofenceController {
     }
 
     @DeleteMapping("/{geofenceId}")
+    @Operation(summary = "Desativar uma geocerca", description = "Usa Firebase ID token do proprietário.")
     public ResponseEntity<Void> remove(
             @PathVariable Integer customerId,
             @PathVariable Integer geofenceId,

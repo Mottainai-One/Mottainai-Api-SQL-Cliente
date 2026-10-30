@@ -16,6 +16,7 @@ import com.institutojf.mottainai.client.dto.response.CustomerCatalogStoreRespons
 import com.institutojf.mottainai.client.dto.response.CustomerGeofenceResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyAccountResponse;
+import com.institutojf.mottainai.client.dto.response.LoyaltyTransactionResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerTokenResponse;
 import com.institutojf.mottainai.client.dto.response.TokenValidationResponse;
@@ -38,6 +39,8 @@ public interface ClientApiOperations {
     CustomerCatalogPromotionResponse getPromotion(Integer promotionId);
 
     LoyaltyAccountResponse getLoyaltyBalance(String firebaseUid);
+
+    PageResponse<LoyaltyTransactionResponse> getLoyaltyTransactions(String firebaseUid, int page, int size);
 
     CustomerTokenResponse login(CustomerLoginRequest request);
 

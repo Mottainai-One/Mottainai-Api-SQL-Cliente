@@ -7,7 +7,6 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import com.institutojf.mottainai.client.dto.request.CustomerLoyaltyTransactionsQuery;
 import com.institutojf.mottainai.client.dto.response.LoyaltyAccountResponse;
-import com.institutojf.mottainai.client.dto.response.CustomerLoyaltyRewardResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyTransactionResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
 import com.institutojf.mottainai.client.service.ClientApiOperations;
@@ -16,7 +15,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/client/loyalty")
@@ -35,13 +33,6 @@ public class ClientLoyaltyController {
         return operations.getLoyaltyBalance(token.getSubject());
     }
 
-    @GetMapping("/rewards")
-    @Operation(summary = "Consultar benefícios disponíveis por pontos",
-            description = "Retorna benefícios ativos e informa se o saldo atual já permite resgatá-los.")
-    public List<CustomerLoyaltyRewardResponse> rewards(@AuthenticationPrincipal Jwt token) {
-        return operations.getLoyaltyRewards(token.getSubject());
-    }
-
     @GetMapping("/transactions")
     @Operation(summary = "Consultar histórico de pontos",
             description = "Retorna somente as transações de fidelidade do cliente Firebase autenticado, "
@@ -54,3 +45,4 @@ public class ClientLoyaltyController {
                 query.from(), query.to());
     }
 }
+

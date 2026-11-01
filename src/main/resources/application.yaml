@@ -1,3 +1,57 @@
 spring:
   application:
     name: mottainai-client-api
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      initialization-fail-timeout: -1
+  sql:
+    init:
+      mode: never
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS:true}
+
+server:
+  port: ${SERVER_PORT:8081}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+    display-request-duration: true
+
+security:
+  firebase:
+    project-id: ${FIREBASE_PROJECT_ID}
+  jwt:
+    secret: ${JWT_SECRET}
+    issuer: ${JWT_ISSUER}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+  customer:
+    data:
+      encryption-key: ${CUSTOMER_DATA_ENCRYPTION_KEY}
+      key-version: ${CUSTOMER_DATA_KEY_VERSION:1}
+      decryption-keys: ${CUSTOMER_DATA_DECRYPTION_KEYS:}
+    password-recovery:
+      url: ${CUSTOMER_PASSWORD_RECOVERY_URL:}
+  staff:
+    data:
+      encryption-key: ${STAFF_DATA_ENCRYPTION_KEY}

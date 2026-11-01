@@ -35,6 +35,7 @@ class MottainaiClientApiApplicationTests {
     void clientRoutesMatchDatabaseContract() {
         assertEquals("/api/v1/client/auth/profile", basePath(CustomerProfileController.class));
         assertTrue(hasMapping(CustomerProfileController.class, "profile", GetMapping.class));
+        assertTrue(hasMapping(CustomerProfileController.class, "profileAvatar", GetMapping.class));
         assertTrue(hasMapping(CustomerProfileController.class, "createProfile", PostMapping.class));
         assertTrue(hasMapping(CustomerProfileController.class, "updateProfile", PutMapping.class));
         assertEquals("/api/v1/customer-catalog", basePath(CustomerCatalogController.class));

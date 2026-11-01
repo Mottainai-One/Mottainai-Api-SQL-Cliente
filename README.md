@@ -1,43 +1,54 @@
-# Mottainai Customer API
+# Mottainai API SQL Cliente
 
-Spring Boot REST API for the Mottainai mobile app. It exposes customer profile, loyalty, store and promotion catalog, and geofence operations over the shared PostgreSQL database.
+API do ecossistema Mottainai destinada ao aplicativo Android do consumidor. O projeto pretende oferecer acesso autorizado ao perfil, catálogo, fidelidade e recursos de localização por meio de serviços HTTP e do banco operacional compartilhado.
 
-## Capabilities
+## Visão de arquitetura
 
-- Firebase authenticated profile, loyalty, catalog, and geofence endpoints.
-- Legacy customer login and password recovery endpoints for accounts stored in the legacy authentication table.
-- OpenAPI documentation and a local Swagger launcher.
+O aplicativo cliente se integra aos serviços HTTP do ecossistema. O banco operacional e sua configuração são mantidos separadamente.
 
-Firebase and legacy authentication are separate flows. New app accounts should use Firebase Authentication. The legacy password recovery endpoint only handles legacy database accounts; Firebase password resets belong to the Firebase client SDK.
+## Tecnologias
 
-## Requirements
+- Java 21.
+- Spring Boot 4.0.0 e Spring MVC, declarados em [pom.xml](pom.xml).
+- Maven para build e testes.
+- JUnit e ferramentas de teste do Spring Boot no escopo de testes.
 
-- Java 21
-- Maven 3.9 or newer
-- A PostgreSQL database with the shared Mottainai schema, functions, views, and required grants installed separately
-- A Firebase project for Firebase protected endpoints
+## Estrutura
 
-The API repository does not create or alter the shared database schema. Customer profile updates require the scoped RLS permissions described in the deployment notes.
+```text
+.
+├── pom.xml
+├── src/main/java/com/institutojf/mottainai/client/
+│   └── MottainaiClientApiApplication.java
+├── src/main/resources/application.yaml
+├── src/test/java/com/institutojf/mottainai/client/
+│   └── MottainaiClientApiApplicationTests.java
+└── LICENSE
+```
 
-## Configuration
+## Requisitos e execução
 
-Set the following environment variables before starting the application:
+Instale Java 21 e Maven 3.9 ou superior. Na raiz do repositório:
 
-| Variable | Purpose |
-|---|---|
-| `DB_URL`, `DB_USER`, `DB_PASSWORD` | PostgreSQL connection |
-| `FIREBASE_PROJECT_ID` | Firebase token verification |
-| `JWT_SECRET`, `JWT_ISSUER` | Legacy customer access tokens |
-| `CUSTOMER_DATA_ENCRYPTION_KEY` | Encryption key for protected profile payloads |
-
-Optional SMTP settings are needed only for legacy customer password recovery: `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_SMTP_AUTH`, `MAIL_SMTP_STARTTLS`, and `CUSTOMER_PASSWORD_RECOVERY_URL`. The endpoint returns `204` even when no matching legacy account exists or mail configuration is incomplete.
-
-## Run locally
-
-```powershell
+```bash
+mvn test
 mvn spring-boot:run
 ```
 
-Swagger UI is available at `/swagger-ui/index.html`; the OpenAPI document is at `/v3/api-docs`. The `scripts/run-swagger.ps1` helper starts a documentation-only local setup. It does not provide a configured database, Firebase project, or SMTP server.
+Esses comandos executam o teste de inicialização e iniciam a estrutura Spring Boot. A configuração versionada em `application.yaml` define o nome da aplicação; a branch principal não fornece um modelo de variáveis de ambiente nem integrações externas configuradas.
 
-See [API routes and test flows](docs/api-usage.md) for endpoint authentication and request examples.
+## Funcionalidades e contratos
+
+Os contratos de perfil, catálogo, fidelidade, geofencing e autenticação estão descritos no [guia de rotas e exemplos da branch de documentação](https://github.com/Mottainai-One/Mottainai-Api-SQL-Cliente/blob/docs/customer-api-usage/docs/api-usage.md). Consulte a branch correspondente para utilizar esses contratos.
+
+O schema, funções, views, políticas RLS e credenciais do PostgreSQL pertencem ao ambiente de banco e devem ser provisionados separadamente quando a integração estiver disponível. Firebase e recuperação de senha devem ser validados contra a versão efetivamente implantada.
+
+## Testes
+
+O teste versionado verifica a inicialização do contexto da aplicação. Ele não valida endpoints, banco, Firebase ou fluxos do aplicativo cliente. Não há Swagger nem script de execução Swagger na árvore atual de `main`.
+
+## Contribuição e licença
+
+Abra uma pull request com a funcionalidade, seus contratos e evidências de teste. Atualize este README quando as branches de negócio forem incorporadas à principal.
+
+Licença: [MIT](LICENSE).

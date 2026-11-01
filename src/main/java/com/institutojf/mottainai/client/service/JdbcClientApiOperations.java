@@ -22,7 +22,6 @@ import com.institutojf.mottainai.client.dto.response.CustomerResponse;
 import com.institutojf.mottainai.client.dto.response.FirebaseCustomerProfileResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerTokenResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyAccountResponse;
-import com.institutojf.mottainai.client.dto.response.CustomerLoyaltyRewardResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyTransactionResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
 import com.institutojf.mottainai.client.dto.response.TokenValidationResponse;
@@ -322,30 +321,6 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Loyalty account was not found");
             }
             return new LoyaltyAccountResponse(points);
-        });
-    }
-
-    @Override
-    public List<CustomerLoyaltyRewardResponse> getLoyaltyRewards(String firebaseUid) {
-        return transactions.execute(status -> {
-            Integer customerId = bootstrapFirebase(firebaseUid);
-            Integer points;
-            try {
-                points = jdbc.queryForObject("SELECT points_balance FROM mottainai.loyalty_account "
-                        + "WHERE customer_id = ? AND active IS TRUE", Integer.class, customerId);
-            } catch (EmptyResultDataAccessException exception) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Loyalty account was not found");
-            }
-            return jdbc.query("SELECT reward_id, name, description, points_cost "
-                            + "FROM mottainai.loyalty_reward WHERE active IS TRUE "
-                            + "AND (valid_from IS NULL OR valid_from <= CURRENT_TIMESTAMP) "
-                            + "AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) "
-                            + "ORDER BY points_cost ASC, name ASC, reward_id ASC",
-                    (rs, row) -> {
-                        int cost = rs.getInt("points_cost");
-                        return new CustomerLoyaltyRewardResponse(rs.getInt("reward_id"), rs.getString("name"),
-                                rs.getString("description"), cost, points >= cost, Math.max(0, cost - points));
-                    });
         });
     }
 
@@ -734,3 +709,4 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
             LocalDateTime startsAt, LocalDateTime endsAt, CustomerCatalogStoreResponse store) { }
     private record PromotionSummary(Integer id, BigDecimal distanceKm, BigDecimal discountPercentage) { }
 }
+

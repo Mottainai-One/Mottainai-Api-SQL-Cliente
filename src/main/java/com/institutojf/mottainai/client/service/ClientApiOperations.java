@@ -17,7 +17,6 @@ import com.institutojf.mottainai.client.dto.response.CustomerCatalogStoreRespons
 import com.institutojf.mottainai.client.dto.response.CustomerGeofenceResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerResponse;
 import com.institutojf.mottainai.client.dto.response.FirebaseCustomerProfileResponse;
-import com.institutojf.mottainai.client.dto.response.CustomerLoyaltyRewardResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyAccountResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyTransactionResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
@@ -43,8 +42,6 @@ public interface ClientApiOperations {
     CustomerCatalogPromotionResponse getPromotion(Integer promotionId);
 
     LoyaltyAccountResponse getLoyaltyBalance(String firebaseUid);
-
-    List<CustomerLoyaltyRewardResponse> getLoyaltyRewards(String firebaseUid);
 
     PageResponse<LoyaltyTransactionResponse> getLoyaltyTransactions(
             String firebaseUid, int page, int size, LocalDate from, LocalDate to);
@@ -72,3 +69,4 @@ public interface ClientApiOperations {
 
     void removeGeofence(Integer customerId, Integer geofenceId, String protectedLoginEmail);
 }
+

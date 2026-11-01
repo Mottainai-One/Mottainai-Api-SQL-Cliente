@@ -112,6 +112,21 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     }
 
     @Override
+    public String getFirebaseProfileAvatarUrl(String firebaseUid) {
+        return transactions.execute(status -> {
+            Integer id = bootstrapFirebase(firebaseUid);
+            PrivateEnvelope stored = readEnvelope(id);
+            try {
+                JsonNode payload = objectMapper.readTree(cryptography.decrypt(id,
+                        new CustomerDataCryptography.Envelope(stored.ciphertext, stored.nonce, stored.keyVersion)));
+                return textValue(payload, "avatarUrl");
+            } catch (JsonProcessingException exception) {
+                throw new IllegalStateException("Stored customer personal data is not valid JSON", exception);
+            }
+        });
+    }
+
+    @Override
     public FirebaseCustomerProfileResponse createFirebaseProfile(
             CreateFirebaseCustomerProfileRequest request, String firebaseUid, String email) {
         return transactions.execute(status -> {

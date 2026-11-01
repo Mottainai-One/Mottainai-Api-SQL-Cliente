@@ -22,6 +22,11 @@ public final class UpdateFirebaseCustomerProfileRequest {
     @Schema(description = "Marketing consent", requiredMode = Schema.RequiredMode.REQUIRED)
     private Boolean marketingConsent;
 
+    @Size(max = 2048)
+    @Schema(description = "Secure URL of the customer's Cloudinary profile image. Omit to keep it; send blank to clear it.")
+    private String avatarUrl;
+    private boolean avatarUrlSpecified;
+
     public UpdateFirebaseCustomerProfileRequest() {
     }
 
@@ -37,6 +42,14 @@ public final class UpdateFirebaseCustomerProfileRequest {
         return marketingConsent;
     }
 
+    public String avatarUrl() {
+        return avatarUrl;
+    }
+
+    public boolean avatarUrlSpecified() {
+        return avatarUrlSpecified;
+    }
+
     @JsonSetter("fullName")
     public void setFullName(String fullName) {
         this.fullName = fullName;
@@ -50,5 +63,11 @@ public final class UpdateFirebaseCustomerProfileRequest {
     @JsonSetter("marketingConsent")
     public void setMarketingConsent(Boolean marketingConsent) {
         this.marketingConsent = marketingConsent;
+    }
+
+    @JsonSetter("avatarUrl")
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+        this.avatarUrlSpecified = true;
     }
 }

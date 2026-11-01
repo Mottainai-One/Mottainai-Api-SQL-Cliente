@@ -1,5 +1,6 @@
 package com.institutojf.mottainai.client.service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import com.institutojf.mottainai.client.dto.request.CreateCustomerGeofenceRequest;
@@ -15,6 +16,8 @@ import com.institutojf.mottainai.client.dto.response.CustomerCatalogPromotionRes
 import com.institutojf.mottainai.client.dto.response.CustomerCatalogStoreResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerGeofenceResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerResponse;
+import com.institutojf.mottainai.client.dto.response.FirebaseCustomerProfileResponse;
+import com.institutojf.mottainai.client.dto.response.CustomerLoyaltyRewardResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyAccountResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyTransactionResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
@@ -23,12 +26,13 @@ import com.institutojf.mottainai.client.dto.response.TokenValidationResponse;
 
 public interface ClientApiOperations {
 
-    CustomerResponse getFirebaseProfile(String firebaseUid);
+    FirebaseCustomerProfileResponse getFirebaseProfile(String firebaseUid, String firebaseEmail);
 
-    CustomerResponse createFirebaseProfile(
+    FirebaseCustomerProfileResponse createFirebaseProfile(
             CreateFirebaseCustomerProfileRequest request, String firebaseUid, String email);
 
-    CustomerResponse updateFirebaseProfile(UpdateFirebaseCustomerProfileRequest request, String firebaseUid);
+    FirebaseCustomerProfileResponse updateFirebaseProfile(
+            UpdateFirebaseCustomerProfileRequest request, String firebaseUid, String firebaseEmail);
 
     PageResponse<CustomerCatalogStoreResponse> listStores(CustomerStoreCatalogQuery query);
 
@@ -40,7 +44,10 @@ public interface ClientApiOperations {
 
     LoyaltyAccountResponse getLoyaltyBalance(String firebaseUid);
 
-    PageResponse<LoyaltyTransactionResponse> getLoyaltyTransactions(String firebaseUid, int page, int size);
+    List<CustomerLoyaltyRewardResponse> getLoyaltyRewards(String firebaseUid);
+
+    PageResponse<LoyaltyTransactionResponse> getLoyaltyTransactions(
+            String firebaseUid, int page, int size, LocalDate from, LocalDate to);
 
     CustomerTokenResponse login(CustomerLoginRequest request);
 
@@ -51,6 +58,12 @@ public interface ClientApiOperations {
     void resetPassword(CustomerPasswordResetRequest request);
 
     CustomerResponse getLegacyProfile(String protectedLoginEmail);
+
+    List<CustomerGeofenceResponse> listMyGeofences(String firebaseUid);
+
+    CustomerGeofenceResponse addMyGeofence(CreateCustomerGeofenceRequest request, String firebaseUid);
+
+    void removeMyGeofence(Integer geofenceId, String firebaseUid);
 
     List<CustomerGeofenceResponse> listGeofences(Integer customerId, String protectedLoginEmail);
 

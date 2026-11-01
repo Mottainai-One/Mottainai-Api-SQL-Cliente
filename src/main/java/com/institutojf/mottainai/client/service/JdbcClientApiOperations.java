@@ -19,8 +19,10 @@ import com.institutojf.mottainai.client.dto.response.CustomerCatalogPromotionRes
 import com.institutojf.mottainai.client.dto.response.CustomerCatalogStoreResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerGeofenceResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerResponse;
+import com.institutojf.mottainai.client.dto.response.FirebaseCustomerProfileResponse;
 import com.institutojf.mottainai.client.dto.response.CustomerTokenResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyAccountResponse;
+import com.institutojf.mottainai.client.dto.response.CustomerLoyaltyRewardResponse;
 import com.institutojf.mottainai.client.dto.response.LoyaltyTransactionResponse;
 import com.institutojf.mottainai.client.dto.response.PageResponse;
 import com.institutojf.mottainai.client.dto.response.TokenValidationResponse;
@@ -28,6 +30,7 @@ import com.institutojf.mottainai.client.security.CustomerDataCryptography;
 import com.institutojf.mottainai.client.security.LegacyCustomerTokenService;
 import com.institutojf.mottainai.client.security.ProtectedDataToken;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -102,15 +105,15 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     }
 
     @Override
-    public CustomerResponse getFirebaseProfile(String firebaseUid) {
+    public FirebaseCustomerProfileResponse getFirebaseProfile(String firebaseUid, String firebaseEmail) {
         return transactions.execute(status -> {
             Integer id = bootstrapFirebase(firebaseUid);
-            return selectCustomer(id);
+            return firebaseProfile(selectCustomer(id), firebaseEmail);
         });
     }
 
     @Override
-    public CustomerResponse createFirebaseProfile(
+    public FirebaseCustomerProfileResponse createFirebaseProfile(
             CreateFirebaseCustomerProfileRequest request, String firebaseUid, String email) {
         return transactions.execute(status -> {
             Integer id = jdbc.queryForObject("SELECT mottainai.fn_api_reserve_customer_id()", Integer.class);
@@ -120,6 +123,7 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
             String protectedPhone = ProtectedDataToken.phone(request.phone());
             String protectedUid = ProtectedDataToken.externalAuthUid(firebaseUid);
             String protectedAddress = addressToken(request.address());
+            validateCloudinaryUrl(request.avatarUrl());
             Short birthYear = null;
             if (request.birthDate() != null) {
                 int year = request.birthDate().getYear();
@@ -130,7 +134,8 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
                 birthYear = (short) year;
             }
             CustomerDataCryptography.Envelope envelope = cryptography.encrypt(id, profilePayload(
-                    request.fullName(), request.cpf(), email, request.phone(), request.birthDate(), request.address()));
+                    request.fullName(), request.cpf(), email, request.phone(), request.birthDate(),
+                    request.address(), request.avatarUrl()));
             ProfileResult result = jdbc.queryForObject(
                     "SELECT * FROM mottainai.fn_api_create_firebase_customer_profile(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (rs, row) -> new ProfileResult(rs.getString("result_code"), customer(rs)),
@@ -140,12 +145,13 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
             if (result == null) {
                 throw new IllegalStateException("The database did not return a Firebase profile result");
             }
-            return profileResult(result, "CREATED", "EXISTING_ACTIVE");
+            return firebaseProfile(profileResult(result, "CREATED", "EXISTING_ACTIVE"), email);
         });
     }
 
     @Override
-    public CustomerResponse updateFirebaseProfile(UpdateFirebaseCustomerProfileRequest request, String firebaseUid) {
+    public FirebaseCustomerProfileResponse updateFirebaseProfile(
+            UpdateFirebaseCustomerProfileRequest request, String firebaseUid, String firebaseEmail) {
         return transactions.execute(status -> {
             Integer id = bootstrapFirebase(firebaseUid);
             PrivateEnvelope stored = readEnvelope(id);
@@ -161,6 +167,11 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
             updated.put("fullName", request.fullName());
             String phone = request.phone();
             if (phone != null && !phone.isBlank()) updated.put("phone", phone);
+            if (request.avatarUrlSpecified()) {
+                validateCloudinaryUrl(request.avatarUrl());
+                if (request.avatarUrl() == null || request.avatarUrl().isBlank()) updated.putNull("avatarUrl");
+                else updated.put("avatarUrl", request.avatarUrl().trim());
+            }
             String preservedPhone = updated.path("phone").isTextual() ? updated.path("phone").asText() : null;
             String serialized = writeJson(updated);
             CustomerDataCryptography.Envelope envelope = cryptography.encrypt(id, serialized);
@@ -171,7 +182,7 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
                     ProtectedDataToken.phone(preservedPhone), request.marketingConsent(), envelope.ciphertext(),
                     envelope.nonce(), envelope.keyVersion(), Timestamp.valueOf(LocalDateTime.now()));
             if (result == null) throw new IllegalStateException("The database did not return a profile update result");
-            return profileResult(result, "UPDATED");
+            return firebaseProfile(profileResult(result, "UPDATED"), firebaseEmail);
         });
     }
 
@@ -315,8 +326,32 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     }
 
     @Override
+    public List<CustomerLoyaltyRewardResponse> getLoyaltyRewards(String firebaseUid) {
+        return transactions.execute(status -> {
+            Integer customerId = bootstrapFirebase(firebaseUid);
+            Integer points;
+            try {
+                points = jdbc.queryForObject("SELECT points_balance FROM mottainai.loyalty_account "
+                        + "WHERE customer_id = ? AND active IS TRUE", Integer.class, customerId);
+            } catch (EmptyResultDataAccessException exception) {
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Loyalty account was not found");
+            }
+            return jdbc.query("SELECT reward_id, name, description, points_cost "
+                            + "FROM mottainai.loyalty_reward WHERE active IS TRUE "
+                            + "AND (valid_from IS NULL OR valid_from <= CURRENT_TIMESTAMP) "
+                            + "AND (valid_until IS NULL OR valid_until > CURRENT_TIMESTAMP) "
+                            + "ORDER BY points_cost ASC, name ASC, reward_id ASC",
+                    (rs, row) -> {
+                        int cost = rs.getInt("points_cost");
+                        return new CustomerLoyaltyRewardResponse(rs.getInt("reward_id"), rs.getString("name"),
+                                rs.getString("description"), cost, points >= cost, Math.max(0, cost - points));
+                    });
+        });
+    }
+
+    @Override
     public PageResponse<LoyaltyTransactionResponse> getLoyaltyTransactions(
-            String firebaseUid, int page, int size) {
+            String firebaseUid, int page, int size, LocalDate from, LocalDate to) {
         return transactions.execute(status -> {
             Integer customerId = bootstrapFirebase(firebaseUid);
             Integer loyaltyAccountId;
@@ -328,17 +363,30 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
             } catch (EmptyResultDataAccessException exception) {
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Loyalty account was not found");
             }
+            StringBuilder where = new StringBuilder(" WHERE loyalty_account_id = ?");
+            List<Object> args = new ArrayList<>();
+            args.add(loyaltyAccountId);
+            if (from != null) {
+                where.append(" AND COALESCE(sale_date, created_at) >= ?");
+                args.add(Timestamp.valueOf(from.atStartOfDay()));
+            }
+            if (to != null) {
+                where.append(" AND COALESCE(sale_date, created_at) < ?");
+                args.add(Timestamp.valueOf(to.plusDays(1).atStartOfDay()));
+            }
             long total = count("SELECT count(loyalty_transaction_id) FROM mottainai.loyalty_transaction "
-                    + "WHERE loyalty_account_id = ?", List.of(loyaltyAccountId));
+                    + where, args);
+            args.add(size);
+            args.add((long) page * size);
             List<LoyaltyTransactionResponse> content = jdbc.query(
                     "SELECT loyalty_transaction_id, sale_id, sale_date, transaction_type, points, description, created_at "
-                            + "FROM mottainai.loyalty_transaction WHERE loyalty_account_id = ? "
-                            + "ORDER BY created_at DESC, loyalty_transaction_id DESC LIMIT ? OFFSET ?",
+                            + "FROM mottainai.loyalty_transaction " + where
+                            + " ORDER BY created_at DESC, loyalty_transaction_id DESC LIMIT ? OFFSET ?",
                     (rs, row) -> new LoyaltyTransactionResponse(rs.getInt("loyalty_transaction_id"),
                             (Integer) rs.getObject("sale_id"), localDateTime(rs, "sale_date"),
                             rs.getString("transaction_type"), rs.getInt("points"), rs.getString("description"),
                             localDateTime(rs, "created_at")),
-                    loyaltyAccountId, size, (long) page * size);
+                    args.toArray());
             return page(content, page, size, total);
         });
     }
@@ -412,14 +460,26 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     }
 
     @Override
+    public List<CustomerGeofenceResponse> listMyGeofences(String firebaseUid) {
+        return transactions.execute(status -> queryGeofences(bootstrapFirebase(firebaseUid)));
+    }
+
+    @Override
+    public CustomerGeofenceResponse addMyGeofence(CreateCustomerGeofenceRequest request, String firebaseUid) {
+        return transactions.execute(status -> addGeofenceForCustomer(bootstrapFirebase(firebaseUid), request));
+    }
+
+    @Override
+    public void removeMyGeofence(Integer geofenceId, String firebaseUid) {
+        transactions.executeWithoutResult(status -> removeGeofenceForCustomer(
+                bootstrapFirebase(firebaseUid), geofenceId));
+    }
+
+    @Override
     public List<CustomerGeofenceResponse> listGeofences(Integer customerId, String firebaseUid) {
         return transactions.execute(status -> {
             requireFirebaseOwner(customerId, firebaseUid);
-            return jdbc.query("SELECT g.geofence_id, g.customer_id, g.store_id, s.name AS store_name, "
-                            + "g.radius_meters, g.active, g.created_at FROM mottainai.customer_geofence g "
-                            + "JOIN mottainai.api_client_catalog_stores s ON s.id = g.store_id "
-                            + "WHERE g.customer_id = ? AND g.active IS TRUE "
-                            + "ORDER BY g.created_at DESC, g.geofence_id DESC", GEOFENCE_MAPPER, customerId);
+            return queryGeofences(customerId);
         });
     }
 
@@ -428,14 +488,7 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
             Integer customerId, CreateCustomerGeofenceRequest request, String firebaseUid) {
         return transactions.execute(status -> {
             requireFirebaseOwner(customerId, firebaseUid);
-            CustomerCatalogStoreResponse store = getStore(request.storeId());
-            return jdbc.queryForObject("INSERT INTO mottainai.customer_geofence "
-                            + "(customer_id, store_id, radius_meters, active, created_at, updated_at) "
-                            + "VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
-                            + "ON CONFLICT (customer_id, store_id) DO UPDATE SET radius_meters = EXCLUDED.radius_meters, "
-                            + "active = TRUE, updated_at = CURRENT_TIMESTAMP "
-                            + "RETURNING geofence_id, customer_id, store_id, ? AS store_name, radius_meters, active, created_at",
-                    GEOFENCE_MAPPER, customerId, request.storeId(), request.radiusMeters(), store.name());
+            return addGeofenceForCustomer(customerId, request);
         });
     }
 
@@ -443,11 +496,35 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
     public void removeGeofence(Integer customerId, Integer geofenceId, String firebaseUid) {
         transactions.executeWithoutResult(status -> {
             requireFirebaseOwner(customerId, firebaseUid);
-            int changed = jdbc.update("UPDATE mottainai.customer_geofence SET active = FALSE, "
-                            + "updated_at = CURRENT_TIMESTAMP WHERE customer_id = ? AND geofence_id = ? AND active IS TRUE",
-                    customerId, geofenceId);
-            if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Geofence was not found");
+            removeGeofenceForCustomer(customerId, geofenceId);
         });
+    }
+
+    private List<CustomerGeofenceResponse> queryGeofences(Integer customerId) {
+        return jdbc.query("SELECT g.geofence_id, g.customer_id, g.store_id, s.name AS store_name, "
+                        + "g.radius_meters, g.active, g.created_at FROM mottainai.customer_geofence g "
+                        + "JOIN mottainai.api_client_catalog_stores s ON s.id = g.store_id "
+                        + "WHERE g.customer_id = ? AND g.active IS TRUE "
+                        + "ORDER BY g.created_at DESC, g.geofence_id DESC", GEOFENCE_MAPPER, customerId);
+    }
+
+    private CustomerGeofenceResponse addGeofenceForCustomer(
+            Integer customerId, CreateCustomerGeofenceRequest request) {
+        CustomerCatalogStoreResponse store = getStore(request.storeId());
+        return jdbc.queryForObject("INSERT INTO mottainai.customer_geofence "
+                        + "(customer_id, store_id, radius_meters, active, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+                        + "ON CONFLICT (customer_id, store_id) DO UPDATE SET radius_meters = EXCLUDED.radius_meters, "
+                        + "active = TRUE, updated_at = CURRENT_TIMESTAMP "
+                        + "RETURNING geofence_id, customer_id, store_id, ? AS store_name, radius_meters, active, created_at",
+                GEOFENCE_MAPPER, customerId, request.storeId(), request.radiusMeters(), store.name());
+    }
+
+    private void removeGeofenceForCustomer(Integer customerId, Integer geofenceId) {
+        int changed = jdbc.update("UPDATE mottainai.customer_geofence SET active = FALSE, "
+                        + "updated_at = CURRENT_TIMESTAMP WHERE customer_id = ? AND geofence_id = ? AND active IS TRUE",
+                customerId, geofenceId);
+        if (changed == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Geofence was not found");
     }
 
     private Integer bootstrapFirebase(String firebaseUid) {
@@ -490,13 +567,56 @@ public final class JdbcClientApiOperations implements ClientApiOperations {
                 "Customer private data was not found");
     }
 
+    private FirebaseCustomerProfileResponse firebaseProfile(CustomerResponse base, String firebaseEmail) {
+        PrivateEnvelope stored = readEnvelope(base.id());
+        JsonNode payload;
+        try {
+            payload = objectMapper.readTree(cryptography.decrypt(base.id(),
+                    new CustomerDataCryptography.Envelope(stored.ciphertext, stored.nonce, stored.keyVersion)));
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Stored customer personal data is not valid JSON", exception);
+        }
+        JsonNode addressNode = payload == null ? null : payload.get("address");
+        AddressResponse address = addressNode == null || addressNode.isNull()
+                ? null : objectMapper.convertValue(addressNode, AddressResponse.class);
+        String email = firebaseEmail == null || firebaseEmail.isBlank()
+                ? textValue(payload, "email") : firebaseEmail;
+        String birthDateValue = textValue(payload, "birthDate");
+        LocalDate birthDate = birthDateValue == null ? null : LocalDate.parse(birthDateValue);
+        return new FirebaseCustomerProfileResponse(base.id(), base.birthYear(), base.active(), base.marketingConsent(),
+                base.createdAt(), base.updatedAt(), textValue(payload, "fullName"), textValue(payload, "phone"),
+                email, birthDate, address, textValue(payload, "avatarUrl"));
+    }
+
+    private static String textValue(JsonNode node, String field) {
+        return node != null && node.path(field).isTextual() ? node.path(field).asText() : null;
+    }
+
+    private static void validateCloudinaryUrl(String value) {
+        if (value == null || value.isBlank()) return;
+        try {
+            URI uri = URI.create(value.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme())
+                    || uri.getHost() == null
+                    || !"res.cloudinary.com".equalsIgnoreCase(uri.getHost())
+                    || uri.getPath() == null || uri.getPath().isBlank()
+                    || uri.getRawUserInfo() != null) {
+                throw new IllegalArgumentException("URL must use the secure Cloudinary image host");
+            }
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "avatarUrl must be a valid HTTPS URL from res.cloudinary.com");
+        }
+    }
+
     private String profilePayload(String fullName, String cpf, String email, String phone, LocalDate birthDate,
-            CreateAddressRequest address) {
+            CreateAddressRequest address, String avatarUrl) {
         ObjectNode value = objectMapper.createObjectNode();
         value.put("fullName", fullName); value.put("cpf", cpf); value.put("email", email);
         if (phone == null) value.putNull("phone"); else value.put("phone", phone);
         if (birthDate == null) value.putNull("birthDate"); else value.put("birthDate", birthDate.toString());
         if (address == null) value.putNull("address"); else value.set("address", objectMapper.valueToTree(address));
+        if (avatarUrl != null && !avatarUrl.isBlank()) value.put("avatarUrl", avatarUrl.trim());
         return writeJson(value);
     }
 

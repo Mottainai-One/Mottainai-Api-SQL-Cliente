@@ -2,7 +2,7 @@ package com.institutojf.mottainai.client.controller;
 
 import com.institutojf.mottainai.client.dto.request.CreateFirebaseCustomerProfileRequest;
 import com.institutojf.mottainai.client.dto.request.UpdateFirebaseCustomerProfileRequest;
-import com.institutojf.mottainai.client.dto.response.CustomerResponse;
+import com.institutojf.mottainai.client.dto.response.FirebaseCustomerProfileResponse;
 import com.institutojf.mottainai.client.service.ClientApiOperations;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,10 +33,10 @@ public class CustomerProfileController {
 
     @GetMapping
     @Operation(summary = "Consultar perfil do cliente autenticado",
-            description = "Retorna identificador, ano de nascimento, consentimento de marketing, situação e datas. "
-                    + "Por proteção de dados, não retorna nome nem telefone.")
-    public CustomerResponse profile(@AuthenticationPrincipal Jwt token) {
-        return operations.getFirebaseProfile(token.getSubject());
+            description = "Retorna os dados do perfil do cliente autenticado. O e-mail vem da identidade Firebase; "
+                    + "os demais dados pessoais são descriptografados do envelope privado do próprio cliente.")
+    public FirebaseCustomerProfileResponse profile(@AuthenticationPrincipal Jwt token) {
+        return operations.getFirebaseProfile(token.getSubject(), token.getClaimAsString("email"));
     }
 
     @PostMapping
@@ -44,11 +44,12 @@ public class CustomerProfileController {
             description = "fullName e cpf são obrigatórios. O CPF deve ter 11 dígitos, sem máscara, e não pode "
                     + "estar cadastrado. Telefone, data de nascimento e endereço são opcionais. "
                     + "Se address for enviado, todos os campos obrigatórios dele devem estar preenchidos. "
-                    + "O e-mail é obtido do Firebase ID token.")
-    public ResponseEntity<CustomerResponse> createProfile(
+                    + "O e-mail é obtido do Firebase ID token. avatarUrl, quando informado, deve ser uma URL HTTPS "
+                    + "de res.cloudinary.com.")
+    public ResponseEntity<FirebaseCustomerProfileResponse> createProfile(
             @Valid @RequestBody CreateFirebaseCustomerProfileRequest request,
             @AuthenticationPrincipal Jwt token) {
-        CustomerResponse response = operations.createFirebaseProfile(
+        FirebaseCustomerProfileResponse response = operations.createFirebaseProfile(
                 request, token.getSubject(), token.getClaimAsString("email"));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
@@ -56,10 +57,11 @@ public class CustomerProfileController {
     @PutMapping
     @Operation(summary = "Atualizar perfil do cliente autenticado",
             description = "fullName e marketingConsent são obrigatórios. Omitir phone ou enviá-lo em branco "
-                    + "mantém o telefone atual. Este PUT não é uma atualização parcial livre.")
-    public CustomerResponse updateProfile(
+                    + "mantém o telefone atual. avatarUrl aceita URL segura do Cloudinary; envie vazio para removê-la. "
+                    + "Este PUT não é uma atualização parcial livre.")
+    public FirebaseCustomerProfileResponse updateProfile(
             @Valid @RequestBody UpdateFirebaseCustomerProfileRequest request,
             @AuthenticationPrincipal Jwt token) {
-        return operations.updateFirebaseProfile(request, token.getSubject());
+        return operations.updateFirebaseProfile(request, token.getSubject(), token.getClaimAsString("email"));
     }
 }

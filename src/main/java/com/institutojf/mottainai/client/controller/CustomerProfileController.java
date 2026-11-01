@@ -3,6 +3,7 @@ package com.institutojf.mottainai.client.controller;
 import com.institutojf.mottainai.client.dto.request.CreateFirebaseCustomerProfileRequest;
 import com.institutojf.mottainai.client.dto.request.UpdateFirebaseCustomerProfileRequest;
 import com.institutojf.mottainai.client.dto.response.FirebaseCustomerProfileResponse;
+import com.institutojf.mottainai.client.dto.response.CustomerAvatarResponse;
 import com.institutojf.mottainai.client.service.ClientApiOperations;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -39,6 +40,13 @@ public class CustomerProfileController {
         return operations.getFirebaseProfile(token.getSubject(), token.getClaimAsString("email"));
     }
 
+    @GetMapping("/avatar")
+    @Operation(summary = "Consultar somente a URL da foto do cliente autenticado",
+            description = "Retorna avatarUrl do perfil Firebase. Se nenhuma foto estiver cadastrada, avatarUrl será null.")
+    public CustomerAvatarResponse profileAvatar(@AuthenticationPrincipal Jwt token) {
+        return new CustomerAvatarResponse(operations.getFirebaseProfileAvatarUrl(token.getSubject()));
+    }
+
     @PostMapping
     @Operation(summary = "Criar perfil de cliente vinculado ao Firebase",
             description = "fullName e cpf são obrigatórios. O CPF deve ter 11 dígitos, sem máscara, e não pode "
@@ -65,3 +73,4 @@ public class CustomerProfileController {
         return operations.updateFirebaseProfile(request, token.getSubject(), token.getClaimAsString("email"));
     }
 }
+

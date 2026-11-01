@@ -27,6 +27,8 @@ public interface ClientApiOperations {
 
     FirebaseCustomerProfileResponse getFirebaseProfile(String firebaseUid, String firebaseEmail);
 
+    String getFirebaseProfileAvatarUrl(String firebaseUid);
+
     FirebaseCustomerProfileResponse createFirebaseProfile(
             CreateFirebaseCustomerProfileRequest request, String firebaseUid, String email);
 

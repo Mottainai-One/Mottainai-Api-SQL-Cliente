@@ -13,6 +13,7 @@ The `/api/v1/customers/auth` routes are the separate legacy flow. `POST /login` 
 | Method | Path | Authentication | Purpose |
 |---|---|---|---|
 | GET | `/api/v1/client/auth/profile` | Firebase | Read the signed-in customer's profile |
+| GET | `/api/v1/client/auth/profile/avatar` | Firebase | Read only the signed-in customer's avatar URL |
 | POST | `/api/v1/client/auth/profile` | Firebase | Create or resolve the signed-in customer's profile |
 | PUT | `/api/v1/client/auth/profile` | Firebase | Update the required profile fields |
 | GET | `/api/v1/client/loyalty/balance` | Firebase | Read the customer's points balance |
@@ -38,6 +39,7 @@ The `/api/v1/customers/auth` routes are the separate legacy flow. `POST /login` 
 - Pagination uses `page=0` and `size=20` by default. Page indices start at zero; supported page sizes are 1–100.
 - Profile creation requires `fullName`, an unmasked 11-digit `cpf`, and `marketingConsent`. Phone, birth date, address, and Cloudinary `avatarUrl` are optional. If an address is supplied, its required fields must be complete.
 - Firebase profile responses include full name, phone, e-mail, birth date, address, and avatar URL along with account metadata. E-mail comes from the authenticated Firebase ID token; the other private fields are read from the encrypted profile envelope.
+- `GET /api/v1/client/auth/profile/avatar` returns `{ "avatarUrl": "..." }`; it returns `{ "avatarUrl": null }` when no photo URL is saved.
 - Profile update requires `fullName` and `marketingConsent`. Omitting `phone` or sending it blank preserves the stored phone. Omit `avatarUrl` to keep the current image; send an empty string to clear its saved URL. A non-empty avatar URL must use HTTPS and the `res.cloudinary.com` host. Clearing the URL does not delete the image asset from Cloudinary.
 - The current profile `PUT` does not edit an address. Address changes need a database function update so the protected address lookup token and encrypted profile stay synchronized.
 - Points history accepts optional ISO dates, for example `GET /api/v1/client/loyalty/transactions?from=2026-01-01&to=2026-01-31&page=0&size=20`. The date range includes both endpoints.
@@ -48,7 +50,7 @@ The `/api/v1/customers/auth` routes are the separate legacy flow. `POST /login` 
 
 ## Suggested smoke-test sequence
 
-1. Authorize Swagger with a Firebase ID token and call `GET /api/v1/client/auth/profile`.
+1. Authorize Swagger with a Firebase ID token and call `GET /api/v1/client/auth/profile` and `GET /api/v1/client/auth/profile/avatar`.
 2. Call `GET /api/v1/client/loyalty/balance`, then `GET /api/v1/client/loyalty/transactions?page=0&size=20` (optionally with `from` and `to`).
 3. Call `GET /api/v1/customer-catalog/stores?page=0&size=20`; use a returned store ID for the store detail and geofence routes.
 4. Call the promotion list without location, then with `latitude`, `longitude`, and `radiusKm`.

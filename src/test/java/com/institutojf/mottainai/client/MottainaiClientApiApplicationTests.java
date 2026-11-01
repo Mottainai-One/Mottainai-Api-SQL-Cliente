@@ -60,8 +60,9 @@ class MottainaiClientApiApplicationTests {
         assertTrue(hasMapping(ClientGeofenceController.class, "list", GetMapping.class));
         assertTrue(hasMapping(ClientGeofenceController.class, "add", PostMapping.class));
         assertTrue(hasMapping(ClientGeofenceController.class, "remove", DeleteMapping.class));
+        assertTrue(hasMapping(ClientLoyaltyController.class, "rewards", GetMapping.class));
         assertTrue(Arrays.stream(ClientLoyaltyController.class.getDeclaredMethods())
-                .noneMatch(method -> method.getName().equals("rewards") || method.getName().equals("redeem")));
+                .noneMatch(method -> method.getName().equals("redeem")));
     }
 
     private static String basePath(Class<?> controller) {

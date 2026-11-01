@@ -43,7 +43,7 @@ public class CustomerCatalogController {
     @GetMapping("/promotions")
     @Operation(summary = "Listar promoções disponíveis",
             description = "latitude, longitude e radiusKm são opcionais, mas devem ser enviados juntos. "
-                    + "A busca geográfica aceita raios de até 20 km e ordena por distância crescente, "
+                    + "A busca geográfica aceita raios de até 10 km e ordena por distância crescente, "
                     + "depois pelo maior desconto percentual da promoção.")
     public PageResponse<CustomerCatalogPromotionResponse> promotions(
             @Valid @ModelAttribute CustomerPromotionCatalogQuery query) {

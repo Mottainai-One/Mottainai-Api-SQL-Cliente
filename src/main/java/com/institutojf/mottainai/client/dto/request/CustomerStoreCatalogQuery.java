@@ -14,7 +14,7 @@ public record CustomerStoreCatalogQuery(
         @Size(max = 100) String query,
         @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
         @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude,
-        @DecimalMin(value = "0.0", inclusive = false) @DecimalMax("500.0") BigDecimal radiusKm
+        @DecimalMin(value = "0.0", inclusive = false) @DecimalMax("10.0") BigDecimal radiusKm
 ) {
     @AssertTrue(message = "Latitude, longitude, and radiusKm must be provided together")
     public boolean isGeographicSearchComplete() {

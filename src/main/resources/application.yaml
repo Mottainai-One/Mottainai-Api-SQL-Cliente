@@ -39,6 +39,11 @@ springdoc:
     display-request-duration: true
 
 security:
+  notifications:
+    enabled: ${CLIENT_NOTIFICATIONS_ENABLED:false}
+    secret: ${CLIENT_NOTIFICATIONS_JWT_SECRET:}
+    company-id: ${CLIENT_NOTIFICATIONS_COMPANY_ID:0}
+    ttl-seconds: ${CLIENT_NOTIFICATIONS_TTL_SECONDS:300}
   firebase:
     project-id: ${FIREBASE_PROJECT_ID}
   jwt:

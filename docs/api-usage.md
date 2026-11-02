@@ -16,6 +16,7 @@ The `/api/v1/customers/auth` routes are the separate legacy flow. `POST /login` 
 | GET | `/api/v1/client/auth/profile/avatar` | Firebase | Read only the signed-in customer's avatar URL |
 | POST | `/api/v1/client/auth/profile` | Firebase | Create or resolve the signed-in customer's profile |
 | PUT | `/api/v1/client/auth/profile` | Firebase | Update the required profile fields |
+| POST | `/api/v1/client/notifications/access-token` | Firebase | Obtain a short-lived bearer for the authenticated customer's Redis inbox |
 | GET | `/api/v1/client/loyalty/balance` | Firebase | Read the customer's points balance |
 | GET | `/api/v1/client/loyalty/rewards` | Firebase | List active rewards and whether the customer's balance is enough |
 | GET | `/api/v1/client/loyalty/transactions` | Firebase | Read the paginated points history, optionally filtered by inclusive dates |
@@ -57,6 +58,17 @@ The `/api/v1/customers/auth` routes are the separate legacy flow. `POST /login` 
 4. Call the promotion list without location, then with `latitude`, `longitude`, and `radiusKm`.
 5. Create, list, and delete a geofence through `/api/v1/client/geofences`; the Firebase token identifies the customer. The older path containing `customerId` remains available for compatibility.
 6. Exercise the legacy login and password reset routes only with a dedicated legacy test account. For Firebase accounts, use Firebase Authentication's password-reset flow.
+
+## Notifications
+
+`POST /api/v1/client/notifications/access-token` takes no body. Use the Firebase ID token in `Authorization`.
+It returns `{ "accessToken": "<Redis JWT>", "expiresIn": 300 }` with `Cache-Control: no-store`.
+The customer is resolved from Firebase and must have an active SQL profile. Missing/inactive profiles
+normally return `404` through the existing profile lookup; a resolved inactive profile is refused with `403`.
+The feature is disabled by default (`503`) until server configuration is supplied. Invalid bearer tokens return `401`.
+
+This route does not publish notifications. Read [the deployment, recipient and publishing contract](notifications.md)
+before enabling the feature; publishers must use the same reserved recipient mapping as the token issuer.
 
 ## Database permissions
 

@@ -45,7 +45,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({ FirebaseProperties.class, JwtProperties.class, CustomerDataCryptoProperties.class })
+@EnableConfigurationProperties({ FirebaseProperties.class, JwtProperties.class, CustomerDataCryptoProperties.class,
+        NotificationTokenProperties.class })
 public class SecurityConfig {
 
     private static final String FIREBASE_JWK_SET_URI =

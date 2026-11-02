@@ -60,3 +60,10 @@ security:
   staff:
     data:
       encryption-key: ${STAFF_DATA_ENCRYPTION_KEY}
+
+notifications:
+  dispatch:
+    enabled: ${CUSTOMER_NOTIFICATION_DISPATCH_ENABLED:false}
+    redis-base-url: ${CUSTOMER_NOTIFICATION_REDIS_URL:}
+    publisher-secret: ${NOTIFICATION_PUBLISHER_SECRET:}
+    allow-insecure: ${CUSTOMER_NOTIFICATION_ALLOW_INSECURE:false}

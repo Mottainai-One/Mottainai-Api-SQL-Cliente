@@ -1,160 +1,105 @@
-# Avisos do Mobile Cliente
+# Avisos de promoções do Mobile Cliente
 
-## O que esta implementação entrega
+## Fluxo implementado
 
-Troca de Firebase ID token por um JWT HS256 curto, aceito pelo contrato atual da
-[API Redis](https://github.com/Mottainai-One/Mottainai-Redis-Api/tree/82d9592).
-Não há criação de tabelas, funções SQL, políticas RLS ou permissões novas.
-O perfil ativo é resolvido pelo fluxo Firebase/SQL existente, com as permissões atuais.
+A API Cliente consulta o catálogo aprovado e prepara a fila transacional no PostgreSQL. Um produtor agendado publica cada entrega no endpoint privado da API Redis. O Redis armazena a caixa individual; o Android usa uma credencial curta para consultar somente os próprios avisos. Firebase permanece responsável apenas pela autenticação.
 
-```http
-POST /api/v1/client/notifications/access-token
-Authorization: Bearer <Firebase-ID-token>
-```
+Não é necessário alterar a API Operacional nem a IA para esse produtor. Não há FCM, Firestore, envio de senhas ou segredos privados ao aplicativo.
 
-Sem corpo. Resposta `200`, com `Cache-Control: no-store` e `Pragma: no-cache`:
+## Banco e regras de negócio
+
+Aplicar primeiro `database/operational/42_customer_promotion_notifications.sql`, do repositório do banco, após as migrações anteriores. Essa migração cria preferências, campanhas e entregas, índices, funções e permissões RLS. Não altera compras nem o cálculo de pontos.
+
+- Raio pessoal de 5 ou 10 km, a partir da posição real consentida.
+- Posição recebida com até dois minutos de idade e até 30 segundos de tolerância no futuro; vence 30 minutos após a observação. Não há histórico de deslocamento.
+- Clientes ativos, com adesão explícita e posição válida; lojas ativas e promoções aprovadas, ativas, vigentes, com itens disponíveis.
+- Até três produtos distintos por loja/dia, no fuso America/Sao_Paulo, selecionando os maiores descontos percentuais.
+- Os primeiros `ceil(clientes próximos × 0,20)`, ordenados por pontos decrescentes, recebem liberação imediata. Empates usam o ID do cliente. Os demais têm liberação 30 minutos depois da criação da campanha.
+- A elegibilidade é reavaliada na reserva de cada entrega. Uma campanha pode voltar a participar no dia seguinte, respeitando a quota diária.
+- A reserva tem lease de 90 segundos; falhas recebem nova tentativa com backoff. A publicação usa um ID estável, preservando a deduplicação no Redis.
+
+O horário acima representa a liberação no servidor. A apresentação no telefone depende de rede, permissões e agendamento do Android, não sendo uma garantia de push instantâneo.
+
+## Rotas de preferência
+
+Todas exigem `Authorization: Bearer <Firebase-ID-token>`. A identidade vem exclusivamente do token, nunca de um customerId enviado pelo aparelho.
+
+| Método e rota | Contrato |
+|---|---|
+| GET /api/v1/client/notification-preferences | Consulta a escolha. Sem registro, retorna enabled=false e radiusKm=5. |
+| PUT /api/v1/client/notification-preferences | Corpo: {"enabled":true,"radiusKm":5}. Desativar também apaga a posição. |
+| PUT /api/v1/client/notification-preferences/location | Corpo: {"latitude":-23.54,"longitude":-47.01,"accuracyMeters":20,"observedAt":"2026-11-02T12:00:00Z"}. Usar o instante atual real, não copiar a data deste exemplo. |
+| DELETE /api/v1/client/notification-preferences/location | Apaga a posição, preservando a escolha de avisos. Retorna 204. |
+| GET /api/v1/client/notification-preferences/stores | Até cem lojas mais próximas, com storeId, latitude, longitude e radiusMeters. A busca de preparação alcança duas vezes o raio; a geocerca de cada loja continua limitada ao raio escolhido de 5 ou 10 km. |
+
+GET/PUT retornam enabled, radiusKm, locationObservedAt e locationExpiresAt; datas ausentes são null. A atualização de posição não habilita avisos automaticamente. Observações anteriores à já armazenada não substituem a mais recente.
+
+Erros: 401 para token ausente/inválido; 404 para perfil não vinculado/ativo; 400 para raio, coordenadas, precisão ou data inválidos; 409 ao enviar posição sem adesão ativa. A precisão aceita fica entre 0 e 10.000 metros. As coordenadas e o endereço residencial não são devolvidos na resposta de preferência.
+
+## Credencial de leitura do Redis
+
+`POST /api/v1/client/notifications/access-token`, autenticado por Firebase, sem corpo, retorna:
 
 ```json
 {"accessToken":"<JWT-curto>","expiresIn":300}
 ```
 
-O app usa o resultado exclusivamente para `GET /v1/notifications?limit=100` e
-`POST /v1/notifications/{id}/read` na API Redis. O token não substitui o Firebase
-nas rotas de perfil, catálogo ou pontos, nem deve ser usado no chat.
+A resposta contém Cache-Control: no-store e Pragma: no-cache. O app usa o JWT somente em GET /v1/notifications e POST /v1/notifications/{id}/read na Redis API. Esse JWT não substitui Firebase no perfil, catálogo, pontos ou chat.
 
-- `401`: Firebase ID token ausente ou inválido, inclusive token legado ou de notificações.
-- `404`: perfil ausente/inativo no fluxo SQL existente.
-- `403`: perfil resolvido sem identidade positiva ou sem estado ativo.
-- `503`: integração desabilitada. Os demais recursos continuam funcionando.
+O destinatário numérico continua compatível com a troca de token existente:
 
-## Configuração nos servidores
+```text
+userId = 4294967296 + customer_id SQL
+companyId = CLIENT_NOTIFICATIONS_COMPANY_ID
+```
 
-Na **API SQL Cliente**:
+A empresa é um namespace estável de entrega do aplicativo Cliente, definido no servidor. Não é um mercado escolhido pelo telefone. A faixa de clientes fica separada dos IDs INTEGER de funcionários. Revisar esse contrato se outros produtores passarem a usar a mesma faixa ou os IDs de funcionários mudarem para BIGINT.
+
+O JWT não contém CPF, e-mail, nome ou UID Firebase. A chave de assinatura fica somente nos servidores.
+
+## Configuração e ordem de publicação
+
+1. Aplicar a migração 42 no banco operacional de destino.
+2. Publicar a API Redis com metadados de promoção e vencimento.
+3. Publicar a API Cliente com o produtor inicialmente desabilitado.
+4. Configurar as credenciais privadas e o namespace de entrega.
+5. Habilitar o produtor e publicar o Android compatível com as rotas de preferência.
+
+API Cliente:
 
 ```dotenv
 CLIENT_NOTIFICATIONS_ENABLED=true
-CLIENT_NOTIFICATIONS_JWT_SECRET=<chave Base64 privada com ao menos 32 bytes>
-CLIENT_NOTIFICATIONS_COMPANY_ID=<namespace positivo de entrega definido pela equipe>
+CLIENT_NOTIFICATIONS_JWT_SECRET=<chave Base64 privada com pelo menos 32 bytes>
+CLIENT_NOTIFICATIONS_COMPANY_ID=<namespace positivo acordado>
 CLIENT_NOTIFICATIONS_TTL_SECONDS=300
+CUSTOMER_NOTIFICATION_DISPATCH_ENABLED=true
+CUSTOMER_NOTIFICATION_REDIS_URL=https://<redis-api-privada>/
+NOTIFICATION_PUBLISHER_SECRET=<segredo privado aleatório, 32 a 512 caracteres ASCII sem espaços>
+CUSTOMER_NOTIFICATION_ALLOW_INSECURE=false
 ```
 
-Na instância da **API Redis destinada ao Cliente**, `JWT_SECRET` deve conter a mesma
-chave Base64 e `JWT_ALGORITHM=HS256`. Preferir uma chave exclusiva dessa integração,
-separada dos tokens de funcionários e do login legado. Nunca configurar a chave no APK,
-em documentação pública, no SQL de carga ou no Git. O segredo não tem valor padrão
-nem fallback para a chave legada. O tempo de vida aceito é de 30 a 300 segundos.
-Uma configuração inválida quando habilitada impede a inicialização, sem revelar a chave.
+Na Redis API, configurar JWT_SECRET com a mesma chave Base64 da credencial de leitura, JWT_ALGORITHM=HS256 e NOTIFICATION_PUBLISHER_SECRET com o mesmo segredo privado do produtor. A chave de leitura e o segredo de publicação são credenciais diferentes. Não reutilizar a chave de funcionários e não colocar nenhuma delas no APK, SQL, documentação pública ou Git.
 
-`CLIENT_NOTIFICATIONS_COMPANY_ID` representa o namespace de entrega comum do aplicativo
-Cliente. Não é o mercado mais próximo nem uma empresa escolhida pelo telefone. O servidor
-e o produtor devem combinar um valor estável: clientes podem receber ofertas de várias
-lojas em uma única caixa. Alterá-lo muda a caixa consultada e deixa avisos anteriores
-no namespace antigo até expirarem. Esta rota não faz migração de caixas existentes.
+Para Docker local, a URL privada pode usar http com CUSTOMER_NOTIFICATION_ALLOW_INSECURE=true explícito. Produção usa HTTPS; o produtor não segue redirecionamentos. Sem configuração válida, a ativação falha na inicialização sem revelar os segredos. Quando desabilitado, o produtor não acessa a fila.
 
-O JWT contém `sub`, `usuario_id`, `empresa_id`, `role=CLIENTE`, `use=access`, `iat`,
-`exp`, `jti`, emissor `mottainai-client-notifications` e audiência
-`mottainai-redis-notifications`. Não inclui CPF, e-mail, nome ou UID Firebase.
-O AuthService Redis atual valida assinatura, validade e identidade; ainda não exige
-emissor/audiência. Esses campos não substituem a separação de chave entre serviços.
+O produtor consulta a fila a cada 15 segundos, reserva até dez entregas por lote e libera a conexão SQL antes do HTTP. A chamada exige recibo 202 com id correspondente e status=queued. Configure persistência e monitoramento do Redis; 202 significa evento enfileirado, não confirmação de visualização no celular.
 
-## Isolamento e destinatário do evento
+## Evento privado
 
-A API Redis atual separa caixas por empresa e usuário numérico, sem considerar `role`.
-Copiar diretamente `customer_id=12` poderia abrir a caixa de `employee_id=12`.
-O SQL atual usa `INTEGER` positivo para ambos; por isso o contrato reserva:
-
-```text
-user_id do destinatário Cliente = 4.294.967.296 + customer_id
-company_id do evento = CLIENT_NOTIFICATIONS_COMPANY_ID
-```
-
-Exemplo de contrato, sem representar uma pessoa real: `customer_id=12` corresponde
-a `user_id=4294967308`. A faixa Cliente vai de `4294967297` a `6442450943`, fora da
-faixa positiva de `INTEGER` dos funcionários. O produtor precisa fazer a mesma conta
-com inteiro de 64 bits. Nenhum desses valores é aceito do aparelho na troca de token.
-
-Se outros produtores já usarem IDs nessa faixa, ou se IDs de funcionários passarem
-a `BIGINT`, revisar este contrato antes de habilitar a integração. Não reaproveitar
-esse identificador de entrega como chave SQL em vendas, perfil, IA ou fidelidade.
-
-## Como o disparo deve funcionar
-
-1. Um produtor autorizado identifica uma promoção aprovada, ativa, vigente e disponível.
-2. O servidor seleciona os clientes elegíveis. A regra de negócio deve considerar
-   lojas parceiras, posição consentida/atualizada e raio de 5 ou 10 km, no máximo
-   três produtos distintos por loja por dia e prioridade temporal por fidelidade.
-3. Para cada destinatário, o produtor publica um evento no Redis Stream
-   `mottainai:v1:notification:stream` (ou na chave configurada em `NOTIFICATION_STREAM_KEY`).
-4. `NotificationStreamListener`, na API Redis, valida o evento e grava a caixa com
-   `NotificationWriter`. Esse componente atribui `createdAt` em milissegundos UTC.
-5. O Android obtém a credencial curta na API Cliente e consulta sua caixa na Redis API.
-   Ao encontrar IDs inéditos, mostra uma notificação nativa e evita repetir o mesmo aviso.
-6. Ao consultar um aviso, o usuário pode abrir as ofertas ou marcá-lo como lido.
-
-Formato do evento de transporte, **não uma rota HTTP pública**:
+POST /internal/v1/notifications na Redis API, com X-Mottainai-Notification-Secret, recebe:
 
 ```json
-{
-  "company_id": "<CLIENT_NOTIFICATIONS_COMPANY_ID>",
-  "user_id": "<4294967296 + customer_id>",
-  "id": "promotion-123-customer-12-20261102",
-  "title": "Uma oferta para você",
-  "body": "Confira as ofertas disponíveis no aplicativo.",
-  "priority": "2"
-}
+{"companyId":1,"userId":4294967308,"id":"customer-promotion-delivery-123","title":"Produto em oferta","body":"Confira esta oferta na loja.","priority":3,"promotionId":10,"storeId":20,"productId":30,"expiresAt":1793664000000}
 ```
 
-Usar um ID estável por aviso/destinatário nas tentativas, com caracteres alfanuméricos,
-ponto, hífen ou sublinhado e até 128 caracteres. `title` admite até 120 caracteres,
-`body` até 1000 e `priority` deve estar entre 1 e 3. A prioridade da caixa Redis não
-implementa, por si, a janela de envio antecipado por fidelidade.
+Os valores são exemplos, sem representar uma pessoa real. expiresAt é um instante futuro em milissegundos UTC, limitado ao fim real da promoção. O Redis mantém createdAt em segundos UTC para compatibilidade com consumidores existentes. O Android deve converter segundos para milissegundos ao formatar a data.
 
-O produtor deve usar uma conexão Redis privada com ACL apropriada. O celular não publica
-eventos e não pode escolher o destinatário. Esta implementação não cria uma rota de disparo
-pública e não envia campanhas para pessoas reais durante os testes.
-
-## O que continua pendente fora desta troca de token
-
-Na IA `main` examinada em `c416945`, `app/cache/notifications.py` contém a função de escrita,
-mas não foi encontrado um chamador de publicação automática em `app`/`config`.
-Ela grava `created_at` em segundos; não reutilizar essa escrita direta para o mobile sem
-padronizar as unidades. Preferir o Stream e o Writer da Redis API, que usam milissegundos.
-É necessário implementar e homologar o produtor de promoções e a seleção dos destinatários.
-Esta rota de credencial não implementa localização em segundo plano, frequência diária,
-prioridade por pontos ou disparo automático ao cadastrar uma promoção.
-
-O contrato Redis atual não retorna `promotionId` e `storeId`. Acrescentar esses campos
-ao produtor, armazenamento, resposta e Android para abrir uma promoção específica.
-No contrato atual, o app abre o catálogo geral, sem deduzir IDs a partir do texto.
-
-## Android e frequência de entrega
-
-Depois de publicar a rota e configurar os dois servidores, definir no ambiente privado Android:
-
-```properties
-MOTTAINAI_NOTIFICATIONS_BASE_URL=https://<servidor-redis>/
-MOTTAINAI_NOTIFICATIONS_TOKEN_PATH=api/v1/client/notifications/access-token
-```
-
-Recompilar o APK. Para testes locais por USB, encaminhar também a porta da API Redis
-com `adb reverse tcp:8083 tcp:8083`, mantendo o encaminhamento da API Cliente.
-Usar HTTP somente no build de desenvolvimento local; produção requer HTTPS.
-O cliente deve ativar avisos e conceder a permissão de notificações no Android.
-
-A integração atual consulta a caixa aproximadamente a cada minuto em primeiro plano.
-Em segundo plano, usa JobScheduler com intervalo mínimo de 15 minutos, sujeito a adiamentos
-do Android. Não é push instantâneo; força de parada, Doze e bateria podem suspender/adiar
-as consultas. A proximidade instantânea exige outra etapa de arquitetura. Não foi adicionado
-Firebase Messaging ou Firestore; Firebase continua dedicado à autenticação do Cliente.
+IDs de destino são positivos. Os quatro campos de destino são enviados juntos. Avisos operacionais genéricos continuam funcionando sem eles. A API Cliente só confirma a publicação SQL após validar o recibo; em uma falha de confirmação, a repetição usa o mesmo ID e não reabre um aviso já lido.
 
 ## Validação
 
-Executar `mvn test`. Os testes isolados verificam assinatura HS256, campos e duração,
-IDs de contas diferentes, falhas de perfil/configuração, ausência de cache e cadeia HTTP.
-Somente a validação Firebase externa e a consulta de perfil SQL são simuladas no teste web.
-Isso não substitui homologar um Firebase ID token real e as permissões SQL no ambiente.
+`mvn --batch-mode verify` executa os testes de contrato, limites, configuração e cadeia real de segurança HTTP. A validação Firebase externa e os serviços SQL são simulados nos testes web.
 
-Após configurar, validar em ambiente de homologação: duas contas com caixas distintas;
-evento publicado com o destinatário mapeado; listagem e leitura idempotente na API Redis;
-notificação nativa; ausência de repetição; logout; permissão negada; token expirado; falha
-de rede sem encerrar a sessão principal. Não fazer uma campanha real para testar a rota.
+O teste NotificationPostgresIntegrationTest só é habilitado com NOTIFICATION_TEST_DB_URL exatamente igual a jdbc:postgresql://mottainai-notification-tests-db:5432/notification_test. Preparar antes a instalação do banco e a fixture 42_customer_promotion_notifications_fixture.sql. Ele usa o papel restrito, salva preferência/posição, consulta geocercas, publica em um HTTP local de teste e confirma ausência de nova reserva das entregas publicadas. Nunca apontá-lo ao banco oficial.
+
+A homologação física continua necessária: localização em segundo plano, mudança de raio, duas contas, revogação de permissões, rede indisponível e abertura da promoção correta. Esta mudança não dispara campanhas de teste em contas reais automaticamente.
